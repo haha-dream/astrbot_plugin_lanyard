@@ -232,23 +232,26 @@ class LanyardActivityNotifier(Star):
                 chain.message(text)
 
                 umo = await self._get_group_unified_msg_origin(group_id)
+                if not umo:
+                    logger.warning(
+                        f"群 {group_id} 未缓存的 unified_msg_origin，跳过推送。请先在该群发送消息。"
+                    )
+                    continue
+
                 await self.context.send_message(umo, chain)
                 logger.info(f"已推送活动更新到群 {group_id}")
             except Exception as e:
                 logger.error(f"推送到群 {group_id} 失败: {e}")
 
     async def _get_group_unified_msg_origin(self, group_id: str) -> Optional[str]:
-        """获取群的 unified_msg_origin，优先从缓存获取，若无缓存则构造默认值"""
+        """获取群的 unified_msg_origin，优先从缓存获取"""
         async with self._lock:
             group_origins = await self.get_kv_data("group_origins", {})
             if not isinstance(group_origins, dict):
                 group_origins = {}
 
             origin = group_origins.get(group_id)
-            if origin:
-                return origin
-
-        return f"aiocqhttp_default_{group_id}"
+            return origin
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def _on_group_message(self, event: AstrMessageEvent):
