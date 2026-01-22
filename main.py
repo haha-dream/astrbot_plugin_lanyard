@@ -6,7 +6,7 @@ from typing import Optional
 import websockets
 
 from astrbot.api import AstrBotConfig, logger
-from astrbot.api.event import MessageChain
+from astrbot.api.event import MessageChain, filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 
 
@@ -56,16 +56,6 @@ class LanyardActivityNotifier(Star):
         logger.info("Lanyard 插件初始化中...")
         self._stop_event = asyncio.Event()
         self._task = asyncio.create_task(self._websocket_loop())
-
-        try:
-            from astrbot.api.event import filter
-
-            self.register_event_handler(
-                filter.EventMessageType.GROUP_MESSAGE, self._on_group_message
-            )
-            logger.debug("已注册群消息监听器")
-        except Exception as e:
-            logger.debug(f"群消息监听器注册失败: {e}")
 
     async def terminate(self):
         """终止插件，停止 WebSocket 连接"""
@@ -260,7 +250,8 @@ class LanyardActivityNotifier(Star):
 
         return f"aiocqhttp_default_{group_id}"
 
-    async def _on_group_message(self, event):
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def _on_group_message(self, event: AstrMessageEvent):
         """监听群消息，自动缓存群的 unified_msg_origin"""
         if not hasattr(event, "get_group_id"):
             return
