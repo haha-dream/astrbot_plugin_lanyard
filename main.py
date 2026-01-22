@@ -46,6 +46,13 @@ class LanyardActivityNotifier(Star):
 
     async def initialize(self):
         """初始化插件，启动 WebSocket 监听"""
+        user_id = str(self.config.get("user_id", "")).strip()
+        if not user_id:
+            logger.warning(
+                "Lanyard 插件: 未配置 Discord 用户 ID，插件已禁用。请在配置中设置 user_id"
+            )
+            return
+
         logger.info("Lanyard 插件初始化中...")
         self._stop_event = asyncio.Event()
         self._task = asyncio.create_task(self._websocket_loop())
@@ -82,6 +89,13 @@ class LanyardActivityNotifier(Star):
 
     async def _websocket_loop(self):
         """WebSocket 主循环：连接、接收消息"""
+        user_id = str(self.config.get("user_id", "")).strip()
+        if not user_id:
+            logger.warning(
+                "Lanyard 插件: 未配置 Discord 用户 ID，无法启动 WebSocket 连接"
+            )
+            return
+
         while not self._stop_event.is_set():
             try:
                 await self._connect_and_listen()
