@@ -258,7 +258,7 @@ class LanyardActivityNotifier(Star):
             if origin:
                 return origin
 
-        return f"aiocqhttp_{group_id}"
+        return f"aiocqhttp_default_{group_id}"
 
     async def _on_group_message(self, event):
         """监听群消息，自动缓存群的 unified_msg_origin"""
