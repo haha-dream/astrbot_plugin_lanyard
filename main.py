@@ -57,6 +57,16 @@ class LanyardActivityNotifier(Star):
         self._stop_event = asyncio.Event()
         self._task = asyncio.create_task(self._websocket_loop())
 
+        try:
+            from astrbot.api.event import filter
+
+            self.register_event_handler(
+                filter.EventMessageType.GROUP_MESSAGE, self._on_group_message
+            )
+            logger.debug("已注册群消息监听器")
+        except Exception as e:
+            logger.debug(f"群消息监听器注册失败: {e}")
+
     async def terminate(self):
         """终止插件，停止 WebSocket 连接"""
         logger.info("Lanyard 插件终止中...")
@@ -232,17 +242,13 @@ class LanyardActivityNotifier(Star):
                 chain.message(text)
 
                 umo = await self._get_group_unified_msg_origin(group_id)
-                if not umo:
-                    logger.warning(f"无法获取群 {group_id} 的消息来源")
-                    continue
-
                 await self.context.send_message(umo, chain)
                 logger.info(f"已推送活动更新到群 {group_id}")
             except Exception as e:
                 logger.error(f"推送到群 {group_id} 失败: {e}")
 
     async def _get_group_unified_msg_origin(self, group_id: str) -> Optional[str]:
-        """获取群的 unified_msg_origin，优先从缓存获取"""
+        """获取群的 unified_msg_origin，优先从缓存获取，若无缓存则构造默认值"""
         async with self._lock:
             group_origins = await self.get_kv_data("group_origins", {})
             if not isinstance(group_origins, dict):
@@ -252,73 +258,46 @@ class LanyardActivityNotifier(Star):
             if origin:
                 return origin
 
-        return None
+        return f"aiocqhttp_{group_id}"
+
+    async def _on_group_message(self, event):
+        """监听群消息，自动缓存群的 unified_msg_origin"""
+        if not hasattr(event, "get_group_id"):
+            return
+
+        group_id = event.get_group_id()
+        if not group_id:
+            return
+
+        try:
+            umo = getattr(event, "unified_msg_origin", None)
+            if umo:
+                async with self._lock:
+                    group_origins = await self.get_kv_data("group_origins", {})
+                    if not isinstance(group_origins, dict):
+                        group_origins = {}
+                    group_origins[str(group_id)] = umo
+                    await self.put_kv_data("group_origins", group_origins)
+                    logger.debug(f"已缓存群 {group_id} 的消息来源")
+        except Exception as e:
+            logger.debug(f"缓存群消息来源失败: {e}")
 
     def _parse_qq_groups(self, value: object) -> set[str]:
         """解析 QQ 群号列表配置"""
-        if value is None:
+        if not isinstance(value, list):
             return set()
-
-        if isinstance(value, list):
-            return {str(x).strip() for x in value if str(x).strip()}
-
-        raw = str(value).strip()
-        if not raw:
-            return set()
-
-        try:
-            obj = json.loads(raw)
-            if isinstance(obj, list):
-                return {str(x).strip() for x in obj if str(x).strip()}
-        except Exception:
-            pass
-
-        parts = []
-        for line in raw.replace(",", "\n").splitlines():
-            s = line.strip()
-            if s:
-                parts.append(s)
-        return set(parts)
+        return {str(x).strip() for x in value if str(x).strip()}
 
     def _parse_enable_activities(self, value: object) -> set[int]:
         """解析启用的活动类型配置"""
-        if value is None:
+        if not isinstance(value, list):
             return set()
-
-        if isinstance(value, list):
-            result = set()
-            for item in value:
-                try:
-                    result.add(int(item))
-                except (ValueError, TypeError):
-                    pass
-            return result
-
-        raw = str(value).strip()
-        if not raw:
-            return set()
-
-        try:
-            obj = json.loads(raw)
-            if isinstance(obj, list):
-                result = set()
-                for item in obj:
-                    try:
-                        result.add(int(item))
-                    except (ValueError, TypeError):
-                        pass
-                return result
-        except Exception:
-            pass
-
         result = set()
-        for line in raw.replace(",", "\n").splitlines():
-            s = line.strip()
-            if s:
-                try:
-                    result.add(int(s))
-                except (ValueError, TypeError):
-                    pass
+        for item in value:
+            try:
+                result.add(int(item))
+            except (ValueError, TypeError):
+                pass
         return result
 
     def _hash_activities(self, presence_data: dict) -> str:
