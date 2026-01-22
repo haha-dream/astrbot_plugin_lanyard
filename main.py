@@ -315,7 +315,7 @@ class LanyardActivityNotifier(Star):
         """格式化活动信息为可读的文本"""
         try:
             user = presence_data.get("discord_user", {})
-            username = user.get("username", "Unknown")
+            username = user.get("display_name", "Unknown")
 
             enable_activities = self._parse_enable_activities(
                 self.config.get("enable_activities", [])
@@ -334,6 +334,10 @@ class LanyardActivityNotifier(Star):
             if activities:
                 for activity in activities:
                     activity_type = activity.get("type", 0)
+
+                    # Skip Spotify (type=2) as it's handled above
+                    if activity_type == 2:
+                        continue
 
                     if enable_activities and activity_type not in enable_activities:
                         continue
