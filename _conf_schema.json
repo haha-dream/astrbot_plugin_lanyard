@@ -1,0 +1,24 @@
+{
+  "user_id": {
+    "description": "Discord 用户 ID",
+    "type": "string",
+    "hint": "你的 Discord 用户 ID，用于获取活动状态"
+  },
+  "qq_groups": {
+    "description": "QQ 群号列表",
+    "type": "list",
+    "hint": "[群号1, 群号2, ...] 或逗号分隔的群号列表",
+    "default": []
+  },
+  "lanyard_api_key": {
+    "description": "Lanyard KV API Key",
+    "type": "string",
+    "hint": "（暂未实装）可选，仅在使用 Lanyard KV 时需要填写。通过 DM Lanyard Bot 发送 .apikey 获取"
+  },
+  "enable_activities": {
+    "description": "启用的活动类型",
+    "type": "list",
+    "hint": "活动类型编号列表：0=游戏, 1=流媒体, 2=听音乐, 3=观看, 4=自定义状态, 5=竞争。空列表 [] 表示启用所有类型",
+    "default": []
+  }
+}
