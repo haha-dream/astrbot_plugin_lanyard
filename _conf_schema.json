@@ -23,14 +23,31 @@
   },
   "filter_config": {
     "description": "活动信息过滤配置",
-    "type": "dict",
+    "type": "object",
     "hint": "控制哪些应用和字段应该被排除显示",
-    "default": {
-      "exclude_app_ids": [],
-      "exclude_fields": {
-        "large_text": [],
-        "state": [],
-        "details": []
+    "items": {
+      "exclude_app_ids": {
+        "type": "list",
+        "description": "要排除的应用ID列表",
+        "default": []
+      },
+      "app_field_filters": {
+        "type": "template_list",
+        "description": "应用字段过滤器",
+        "hint": "为每个应用指定要过滤的字段",
+        "template": {
+          "app_id": {
+            "type": "string",
+            "description": "应用ID",
+            "hint": "要过滤的应用ID"
+          },
+          "filtered_fields": {
+            "type": "list",
+            "description": "要过滤的字段列表",
+            "hint": "例如: ['large_text', 'state', 'details']",
+            "default": []
+          }
+        }
       }
     }
   }

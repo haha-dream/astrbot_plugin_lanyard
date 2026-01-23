@@ -330,20 +330,19 @@ class LanyardActivityNotifier(Star):
         if not isinstance(filter_config, dict):
             filter_config = {}
 
-        # 设置默认值
         exclude_app_ids = filter_config.get("exclude_app_ids", [])
         if not isinstance(exclude_app_ids, list):
             exclude_app_ids = []
 
-        exclude_fields = filter_config.get("exclude_fields", {})
-        if not isinstance(exclude_fields, dict):
-            exclude_fields = {}
+        app_field_filters = filter_config.get("app_field_filters", [])
+        if not isinstance(app_field_filters, list):
+            app_field_filters = []
 
         return {
             "exclude_app_ids": {
                 str(x).strip() for x in exclude_app_ids if str(x).strip()
             },
-            "exclude_fields": exclude_fields,
+            "app_field_filters": app_field_filters,
         }
 
     def _should_exclude_app(self, app_id: str) -> bool:
@@ -359,12 +358,23 @@ class LanyardActivityNotifier(Star):
             return False
 
         filter_config = self._get_filter_config()
-        excluded_fields = filter_config["exclude_fields"].get(field_name, [])
 
-        if not isinstance(excluded_fields, list):
-            excluded_fields = []
+        for app_filter in filter_config["app_field_filters"]:
+            if not isinstance(app_filter, dict):
+                continue
 
-        return app_id not in {str(x).strip() for x in excluded_fields if str(x).strip()}
+            filter_app_id = app_filter.get("app_id", "")
+            if str(filter_app_id).strip() == app_id:
+                filtered_fields = app_filter.get("filtered_fields", [])
+                if not isinstance(filtered_fields, list):
+                    filtered_fields = []
+
+                if field_name in [
+                    str(f).strip() for f in filtered_fields if str(f).strip()
+                ]:
+                    return False
+
+        return True
 
     def _format_presence(self, presence_data: dict) -> str:
         """格式化活动信息为可读的文本"""
