@@ -57,13 +57,6 @@
       }
     },
     "hint": "控制哪些应用和字段应该被排除显示",
-    "default": {
-      "exclude_app_ids": [],
-      "exclude_fields": {
-        "large_text": [],
-        "state": [],
-        "details": []
-      }
-    }
+    "default": {}
   }
 }
