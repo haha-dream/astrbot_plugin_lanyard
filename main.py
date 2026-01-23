@@ -391,7 +391,21 @@ class LanyardActivityNotifier(Star):
                         activities_info.append(activity_msg)
 
             if activities_info:
-                return self._join_activities(activities_info, username)
+                formatted_lines = []
+                for activity_info in activities_info:
+                    if isinstance(activity_info, tuple):
+                        modifier, verb_content = activity_info
+                        formatted_lines.append(
+                            f"{username} {modifier}{verb_content} 了"
+                        )
+                    elif activity_info:
+                        formatted_lines.append(f"{username} {activity_info} 了")
+
+                if formatted_lines:
+                    return "\n".join(formatted_lines)
+
+                discord_status = presence_data.get("discord_status", "offline")
+                return f"{username} 的 Discord 状态: {discord_status}"
 
             discord_status = presence_data.get("discord_status", "offline")
             return f"{username} 的 Discord 状态: {discord_status}"
@@ -400,69 +414,91 @@ class LanyardActivityNotifier(Star):
             logger.error(f"格式化活动信息失败: {e}")
             return None
 
-    def _join_activities(self, activities: list, username: str) -> str:
-        """合并多个活动信息"""
-        if not activities:
-            return ""
+    def _format_activity_brief(self, activity: dict) -> str | tuple:
+        """格式化单个活动（返回字符串或修饰词和动词+内容的元组）"""
+        try:
+            activity_type = activity.get("type", 6)
+            activity_name = activity.get("name", "Unknown")
+            details = activity.get("details", "")
+            state = activity.get("state", "")
+            assets = activity.get("assets", {})
+            app_id = activity.get("application_id", "")
 
-        lines = []
+            # 检查应用是否被排除
+            if app_id and self._should_exclude_app(app_id):
+                return None
 
-        for activity in activities:
-            if isinstance(activity, tuple):
-                modifier, verb_content = activity
-                lines.append(f"{username} {modifier}{verb_content} 了")
+            if activity_type == 0:
+                game_info_parts = [f"玩 {activity_name}"]
+
+                if self._should_include_field(activity_type, "large_text", app_id):
+                    if assets and assets.get("large_text"):
+                        large_text = assets["large_text"].strip()
+                        game_info_parts.append(large_text)
+
+                if self._should_include_field(activity_type, "state", app_id):
+                    if state:
+                        state_text = state.strip()
+                        game_info_parts.append(state_text)
+
+                if self._should_include_field(activity_type, "details", app_id):
+                    if details:
+                        game_info_parts.append(details)
+
+                game_info = " | ".join(game_info_parts)
+                return ("开始", game_info)
+
+            elif activity_type == 1:
+                stream_info = f"直播 {activity_name}"
+                if details and self._should_include_field(
+                    activity_type, "details", app_id
+                ):
+                    stream_info += f" ({details})"
+                return ("开始", stream_info)
+
+            elif activity_type == 2:
+                # Spotify
+                if (
+                    details
+                    and state
+                    and self._should_include_field(activity_type, "details", app_id)
+                    and self._should_include_field(activity_type, "state", app_id)
+                ):
+                    return ("开始", f"听 {details} - {state}")
+                elif details and self._should_include_field(
+                    activity_type, "details", app_id
+                ):
+                    return ("开始", f"听 {details}")
+                elif state and self._should_include_field(
+                    activity_type, "state", app_id
+                ):
+                    return ("开始", f"听 {state}")
+                return ("开始", f"听 {activity_name}")
+
+            elif activity_type == 3:
+                watching_info = f"看 {activity_name}"
+                if details and self._should_include_field(
+                    activity_type, "details", app_id
+                ):
+                    watching_info += f" ({details})"
+                return ("开始", watching_info)
+
+            elif activity_type == 4:
+                if state and self._should_include_field(activity_type, "state", app_id):
+                    return state
+                return "自定义状态"
+
+            elif activity_type == 5:
+                competing_info = f"竞争 {activity_name}"
+                if details and self._should_include_field(
+                    activity_type, "details", app_id
+                ):
+                    competing_info += f" ({details})"
+                return ("开始", competing_info)
+
             else:
-                lines.append(f"{username} {activity} 了")
+                return ("开始", f"捣鼓 {activity_name}")
 
-        return "\n".join(lines)
-
-    def _format_activity_brief(self, activity: dict) -> tuple:
-        """格式化单个活动（返回修饰词和动词+内容的元组）"""
-        activity_type = activity.get("type", 6)
-        activity_name = activity.get("name", "Unknown")
-        details = activity.get("details", "")
-        state = activity.get("state", "")
-        assets = activity.get("assets", {})
-        app_id = activity.get("application_id", "")
-
-        if activity_type == 0:
-            game_info_parts = [f"玩 {activity_name}"]
-
-            if self._should_include_field(activity_type, "large_text", app_id):
-                if assets and assets.get("large_text"):
-                    large_text = assets["large_text"].strip()
-                    game_info_parts.append(large_text)
-
-            if self._should_include_field(activity_type, "state", app_id):
-                if state:
-                    state_text = state.strip()
-                    game_info_parts.append(state_text)
-
-            if self._should_include_field(activity_type, "details", app_id):
-                if details:
-                    game_info_parts.append(details)
-
-            game_info = " | ".join(game_info_parts)
-            return ("开始", game_info)
-        elif activity_type == 1:
-            if details:
-                return ("开始", f"直播 {activity_name} ({details})")
-            return ("开始", f"直播 {activity_name}")
-        elif activity_type == 2:
-            if details and state:
-                return ("开始", f"听 {details} - {state}")
-            return ("开始", f"听 {activity_name}")
-        elif activity_type == 3:
-            if details:
-                return ("开始", f"看 {activity_name} ({details})")
-            return ("开始", f"看 {activity_name}")
-        elif activity_type == 4:
-            if state:
-                return ("", state)
-            return ("", "自定义状态")
-        elif activity_type == 5:
-            if details:
-                return ("开始", f"竞争 {activity_name} ({details})")
-            return ("开始", f"竞争 {activity_name}")
-        else:
-            return ("开始", f"捣鼓 {activity_name}")
+        except Exception as e:
+            logger.error(f"格式化单个活动失败: {e}")
+            return None
