@@ -38,7 +38,7 @@
         "template": {
           "app_id": {
             "type": "string",
-            "description": "Discord应用ID",
+            "description": "应用ID",
             "hint": "要过滤的应用ID"
           },
           "filtered_fields": {
