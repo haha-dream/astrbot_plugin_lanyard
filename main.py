@@ -324,6 +324,48 @@ class LanyardActivityNotifier(Star):
                 pass
         return result
 
+    def _get_filter_config(self) -> dict:
+        """获取过滤配置"""
+        filter_config = self.config.get("filter_config", {})
+        if not isinstance(filter_config, dict):
+            filter_config = {}
+
+        # 设置默认值
+        exclude_app_ids = filter_config.get("exclude_app_ids", [])
+        if not isinstance(exclude_app_ids, list):
+            exclude_app_ids = []
+
+        exclude_fields = filter_config.get("exclude_fields", {})
+        if not isinstance(exclude_fields, dict):
+            exclude_fields = {}
+
+        return {
+            "exclude_app_ids": {
+                str(x).strip() for x in exclude_app_ids if str(x).strip()
+            },
+            "exclude_fields": exclude_fields,
+        }
+
+    def _should_exclude_app(self, app_id: str) -> bool:
+        """判断应用是否应该被排除"""
+        filter_config = self._get_filter_config()
+        return app_id in filter_config["exclude_app_ids"]
+
+    def _should_include_field(
+        self, activity_type: int, field_name: str, app_id: str
+    ) -> bool:
+        """判断字段是否应该被包含"""
+        if self._should_exclude_app(app_id):
+            return False
+
+        filter_config = self._get_filter_config()
+        excluded_fields = filter_config["exclude_fields"].get(field_name, [])
+
+        if not isinstance(excluded_fields, list):
+            excluded_fields = []
+
+        return app_id not in {str(x).strip() for x in excluded_fields if str(x).strip()}
+
     def _format_presence(self, presence_data: dict) -> str:
         """格式化活动信息为可读的文本"""
         try:
@@ -381,20 +423,22 @@ class LanyardActivityNotifier(Star):
         details = activity.get("details", "")
         state = activity.get("state", "")
         assets = activity.get("assets", {})
+        app_id = activity.get("application_id", "")
 
         if activity_type == 0:
             game_info_parts = [f"玩 {activity_name}"]
 
-            if assets and assets.get("large_text"):
-                large_text = assets["large_text"].strip()
-                game_info_parts.append(large_text)
+            if self._should_include_field(activity_type, "large_text", app_id):
+                if assets and assets.get("large_text"):
+                    large_text = assets["large_text"].strip()
+                    game_info_parts.append(large_text)
 
-            if state:
-                state_text = state.strip()
-                game_info_parts.append(state_text)
+            if self._should_include_field(activity_type, "state", app_id):
+                if state:
+                    state_text = state.strip()
+                    game_info_parts.append(state_text)
 
-            # when playing tModLoader with Discordya, player status is bloating group chat
-            if activity.get("application_id", "") != "844487120416407573":
+            if self._should_include_field(activity_type, "details", app_id):
                 if details:
                     game_info_parts.append(details)
 

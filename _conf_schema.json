@@ -20,5 +20,18 @@
     "type": "list",
     "hint": "活动类型编号列表：0=游戏, 1=流媒体, 2=听音乐, 3=观看, 4=自定义状态, 5=竞争。空列表 [] 表示启用所有类型",
     "default": []
+  },
+  "filter_config": {
+    "description": "活动信息过滤配置",
+    "type": "dict",
+    "hint": "控制哪些应用和字段应该被排除显示",
+    "default": {
+      "exclude_app_ids": [],
+      "exclude_fields": {
+        "large_text": [],
+        "state": [],
+        "details": []
+      }
+    }
   }
 }
