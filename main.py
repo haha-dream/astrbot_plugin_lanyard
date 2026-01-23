@@ -9,13 +9,6 @@ from astrbot.api.event import MessageChain, filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 
 
-@register(
-    "astrbot_plugin_lanyard",
-    "haha-dream",
-    "基于 Lanyard 把你的活动推送到群聊",
-    "v1.0.5",
-    "https://github.com/haha-dream/astrbot_plugin_lanyard",
-)
 class LanyardActivityNotifier(Star):
     """Lanyard 活动推送插件
 
