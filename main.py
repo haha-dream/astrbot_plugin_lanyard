@@ -227,6 +227,14 @@ class LanyardActivityNotifier(Star):
                 details = activity.get("details", "")
                 if details:
                     activity_states.append(details)
+            elif activity.get("state") is None:
+                details = activity.get("details", "")
+                if details:
+                    activity_states.append(details)
+            elif activity.get("details") is None:
+                details = activity.get("name", "")
+                if details:
+                    activity_states.append(details)
             else:
                 activity_state = activity.get("state", "")
                 if activity_state:
