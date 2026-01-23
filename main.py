@@ -1,6 +1,5 @@
 import asyncio
 import json
-import hashlib
 from typing import Optional
 
 import websockets
@@ -38,7 +37,8 @@ class LanyardActivityNotifier(Star):
         self.config = config
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
-        self._last_activity_hash: Optional[str] = None
+        self._last_activities = None
+        self._last_spotify = None
         self._lock = asyncio.Lock()
         self._ws = None
         self._heartbeat_task: Optional[asyncio.Task] = None
@@ -200,16 +200,17 @@ class LanyardActivityNotifier(Star):
 
     async def _check_and_push_update(self, presence_data: dict):
         """检查活动是否变化，如果变化则推送"""
-        current_hash = self._hash_activities(presence_data)
+        current_activities = presence_data.get("activities", [])
+        current_spotify = presence_data.get("spotify")
 
-        async with self._lock:
-            last_hash = await self.get_kv_data("last_activity_hash", None)
-
-        if current_hash == last_hash:
+        if (
+            self._last_activities == current_activities
+            and self._last_spotify == current_spotify
+        ):
             return
 
-        async with self._lock:
-            await self.put_kv_data("last_activity_hash", current_hash)
+        self._last_activities = current_activities
+        self._last_spotify = current_spotify
 
         await self._push_update(presence_data)
 
@@ -294,23 +295,6 @@ class LanyardActivityNotifier(Star):
                 pass
         return result
 
-    def _hash_activities(self, presence_data: dict) -> str:
-        """生成活动数据的哈希值，用于判断是否有更新"""
-        try:
-            activities = presence_data.get("activities", [])
-            spotify = presence_data.get("spotify")
-
-            summary = {
-                "activities": activities,
-                "spotify": spotify,
-                "discord_status": presence_data.get("discord_status"),
-            }
-
-            summary_str = json.dumps(summary, sort_keys=True, ensure_ascii=False)
-            return hashlib.md5(summary_str.encode()).hexdigest()
-        except Exception:
-            return ""
-
     def _format_presence(self, presence_data: dict) -> str:
         """格式化活动信息为可读的文本"""
         try:
@@ -382,13 +366,13 @@ class LanyardActivityNotifier(Star):
 
     def _format_activity_brief(self, activity: dict) -> tuple:
         """格式化单个活动（返回修饰词和动词+内容的元组）"""
-        activity_type = activity.get("type", 0)
+        activity_type = activity.get("type", 6)
         activity_name = activity.get("name", "Unknown")
         details = activity.get("details", "")
         state = activity.get("state", "")
 
         if activity_type == 0:
-            return ("开始", f"玩 {activity_name}")
+            return ("开始", f"玩 {activity_name} ({details})")
         elif activity_type == 1:
             if details:
                 return ("开始", f"直播 {activity_name} ({details})")
