@@ -211,23 +211,28 @@ class LanyardActivityNotifier(Star):
     def _generate_activity_fingerprint(self, presence_data: dict) -> str:
         """生成活动指纹，用于检测活动变化"""
         activities = presence_data.get("activities", [])
-        spotify = presence_data.get("spotify")
-
-        activity_ids = []
-        for activity in activities:
-            activity_id = activity.get("id", "")
-            if activity_id:
-                activity_ids.append(activity_id)
-
-        spotify_fingerprint = ""
-        if spotify:
-            song = spotify.get("song", "")
-            artist = spotify.get("artist", "")
-            spotify_fingerprint = f"{song}|{artist}"
-
-        fingerprint = "|".join(activity_ids) + (
-            f"||{spotify_fingerprint}" if spotify_fingerprint else ""
+        enable_activities = self._parse_enable_activities(
+            self.config.get("enable_activities", [])
         )
+
+        activity_states = []
+        for activity in activities:
+            activity_type = activity.get("type", 6)
+
+            if enable_activities and activity_type not in enable_activities:
+                continue
+
+            # 特殊处理 Spotify, 使用 details 作为指纹
+            if activity_type == 2:
+                details = activity.get("details", "")
+                if details:
+                    activity_states.append(details)
+            else:
+                activity_state = activity.get("state", "")
+                if activity_state:
+                    activity_states.append(activity_state)
+
+        fingerprint = "|".join(activity_states)
         return fingerprint
 
     async def _push_update(self, presence_data: dict):
@@ -323,21 +328,10 @@ class LanyardActivityNotifier(Star):
 
             activities_info = []
 
-            if presence_data.get("spotify"):
-                if not enable_activities or 2 in enable_activities:
-                    spotify = presence_data["spotify"]
-                    song = spotify.get("song", "Unknown")
-                    artist = spotify.get("artist", "Unknown")
-                    activities_info.append(("开始", f"听 {song} - {artist}"))
-
             activities = presence_data.get("activities", [])
             if activities:
                 for activity in activities:
-                    activity_type = activity.get("type", 0)
-
-                    # Skip Spotify (type=2) as it's handled above
-                    if activity_type == 2:
-                        continue
+                    activity_type = activity.get("type", 6)
 
                     if enable_activities and activity_type not in enable_activities:
                         continue
@@ -391,7 +385,7 @@ class LanyardActivityNotifier(Star):
                 state_text = state.strip()
                 game_info_parts.append(state_text)
 
-            # when playing tModLoader with Discordya, player status is bloating
+            # when playing tModLoader with Discordya, player status is bloating group chat
             if activity.get("application_id", "") != "844487120416407573":
                 if details:
                     game_info_parts.append(details)
