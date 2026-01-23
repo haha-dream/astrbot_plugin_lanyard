@@ -23,7 +23,7 @@
   },
   "filter_config": {
     "description": "活动信息过滤配置",
-    "type": "dict",
+    "type": "object",
     "hint": "控制哪些应用和字段应该被排除显示",
     "default": {
       "exclude_app_ids": [],
