@@ -24,6 +24,38 @@
   "filter_config": {
     "description": "活动信息过滤配置",
     "type": "object",
+    "items": {
+      "exclude_app_ids": {
+        "description": "排除的应用 ID 列表",
+        "type": "list",
+        "hint": "不显示这些应用的活动信息",
+        "default": []
+      },
+      "exclude_fields": {
+        "description": "排除的字段",
+        "type": "object",
+        "items": {
+          "large_text": {
+            "description": "排除的大文本字段列表",
+            "type": "list",
+            "hint": "不显示这些字段的应用",
+            "default": []
+          },
+          "state": {
+            "description": "排除的状态字段列表",
+            "type": "list",
+            "hint": "不显示这些字段的应用",
+            "default": []
+          },
+          "details": {
+            "description": "排除的详情字段列表",
+            "type": "list",
+            "hint": "不显示这些字段的应用",
+            "default": []
+          }
+        }
+      }
+    },
     "hint": "控制哪些应用和字段应该被排除显示",
     "default": {
       "exclude_app_ids": [],
