@@ -336,7 +336,7 @@ class LanyardActivityNotifier(Star):
             exclude_app_ids = []
 
         exclude_fields = filter_config.get("exclude_fields", {})
-        if not isinstance(exclude_fields, dict):
+        if not isinstance(exclude_fields, object):
             exclude_fields = {}
 
         return {
