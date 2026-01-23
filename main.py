@@ -38,7 +38,6 @@ class LanyardActivityNotifier(Star):
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._last_activities = None
-        self._last_spotify = None
         self._lock = asyncio.Lock()
         self._ws = None
         self._heartbeat_task: Optional[asyncio.Task] = None
@@ -200,19 +199,36 @@ class LanyardActivityNotifier(Star):
 
     async def _check_and_push_update(self, presence_data: dict):
         """检查活动是否变化，如果变化则推送"""
-        current_activities = presence_data.get("activities", [])
-        current_spotify = presence_data.get("spotify")
+        current_fingerprint = self._generate_activity_fingerprint(presence_data)
 
-        if (
-            self._last_activities == current_activities
-            and self._last_spotify == current_spotify
-        ):
+        if current_fingerprint == self._last_activities:
             return
 
-        self._last_activities = current_activities
-        self._last_spotify = current_spotify
+        self._last_activities = current_fingerprint
 
         await self._push_update(presence_data)
+
+    def _generate_activity_fingerprint(self, presence_data: dict) -> str:
+        """生成活动指纹，用于检测活动变化"""
+        activities = presence_data.get("activities", [])
+        spotify = presence_data.get("spotify")
+
+        activity_ids = []
+        for activity in activities:
+            activity_id = activity.get("id", "")
+            if activity_id:
+                activity_ids.append(activity_id)
+
+        spotify_fingerprint = ""
+        if spotify:
+            song = spotify.get("song", "")
+            artist = spotify.get("artist", "")
+            spotify_fingerprint = f"{song}|{artist}"
+
+        fingerprint = "|".join(activity_ids) + (
+            f"||{spotify_fingerprint}" if spotify_fingerprint else ""
+        )
+        return fingerprint
 
     async def _push_update(self, presence_data: dict):
         """推送活动更新到 QQ 群聊"""
@@ -375,7 +391,7 @@ class LanyardActivityNotifier(Star):
                 state_text = state.strip()
                 game_info_parts.append(state_text)
 
-            # if playing tModLoader with Discordya, skip details
+            # when playing tModLoader with Discordya, player status is bloating
             if activity.get("application_id", "") != "844487120416407573":
                 if details:
                     game_info_parts.append(details)
