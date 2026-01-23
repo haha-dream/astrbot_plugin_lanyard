@@ -330,41 +330,25 @@ class LanyardActivityNotifier(Star):
         if not isinstance(filter_config, dict):
             filter_config = {}
 
-        # 安全地获取 exclude_app_ids
         exclude_app_ids = filter_config.get("exclude_app_ids", [])
         if not isinstance(exclude_app_ids, list):
             exclude_app_ids = []
 
-        # 安全地处理 exclude_app_ids 中的每个元素
-        safe_exclude_app_ids = set()
-        for x in exclude_app_ids:
-            try:
-                safe_exclude_app_ids.add(str(x).strip())
-            except:
-                pass
-
-        # 安全地获取 exclude_fields
         exclude_fields = filter_config.get("exclude_fields", {})
-        if not isinstance(exclude_fields, dict):
+        if not isinstance(exclude_fields, object):
             exclude_fields = {}
 
-        # 安全地处理 exclude_fields 中的内容
-        safe_exclude_fields = {}
-        for field_name, app_ids in exclude_fields.items():
-            if not isinstance(app_ids, list):
-                continue
-            safe_app_ids = set()
-            for app_id in app_ids:
-                try:
-                    safe_app_ids.add(str(app_id).strip())
-                except:
-                    pass
-            safe_exclude_fields[str(field_name)] = list(safe_app_ids)
-
         return {
-            "exclude_app_ids": safe_exclude_app_ids,
-            "exclude_fields": safe_exclude_fields,
+            "exclude_app_ids": {
+                str(x).strip() for x in exclude_app_ids if str(x).strip()
+            },
+            "exclude_fields": exclude_fields,
         }
+
+    def _should_exclude_app(self, app_id: str) -> bool:
+        """判断应用是否应该被排除"""
+        filter_config = self._get_filter_config()
+        return app_id in filter_config["exclude_app_ids"]
 
     def _should_include_field(
         self, activity_type: int, field_name: str, app_id: str
@@ -376,31 +360,10 @@ class LanyardActivityNotifier(Star):
         filter_config = self._get_filter_config()
         excluded_fields = filter_config["exclude_fields"].get(field_name, [])
 
-        # 确保 excluded_fields 是列表
         if not isinstance(excluded_fields, list):
-            return True
+            excluded_fields = []
 
-        # 安全地检查 app_id 是否在排除列表中
-        try:
-            app_id_str = str(app_id).strip() if app_id else ""
-            excluded_set = {str(x).strip() for x in excluded_fields if x is not None}
-            return app_id_str not in excluded_set
-        except Exception:
-            # 如果出现任何错误，默认包含该字段
-            return True
-
-    def _should_exclude_app(self, app_id: str) -> bool:
-        """判断应用是否应该被排除"""
-        if not app_id:
-            return False
-
-        filter_config = self._get_filter_config()
-        try:
-            app_id_str = str(app_id).strip()
-            return app_id_str in filter_config["exclude_app_ids"]
-        except Exception:
-            # 如果出现任何错误，默认不排除
-            return False
+        return app_id not in {str(x).strip() for x in excluded_fields if str(x).strip()}
 
     def _format_presence(self, presence_data: dict) -> str:
         """格式化活动信息为可读的文本"""
@@ -427,21 +390,7 @@ class LanyardActivityNotifier(Star):
                         activities_info.append(activity_msg)
 
             if activities_info:
-                formatted_lines = []
-                for activity_info in activities_info:
-                    if isinstance(activity_info, tuple):
-                        modifier, verb_content = activity_info
-                        formatted_lines.append(
-                            f"{username} {modifier}{verb_content} 了"
-                        )
-                    elif activity_info:
-                        formatted_lines.append(f"{username} {activity_info} 了")
-
-                if formatted_lines:
-                    return "\n".join(formatted_lines)
-
-                discord_status = presence_data.get("discord_status", "offline")
-                return f"{username} 的 Discord 状态: {discord_status}"
+                return self._join_activities(activities_info, username)
 
             discord_status = presence_data.get("discord_status", "offline")
             return f"{username} 的 Discord 状态: {discord_status}"
@@ -449,6 +398,22 @@ class LanyardActivityNotifier(Star):
         except Exception as e:
             logger.error(f"格式化活动信息失败: {e}")
             return None
+
+    def _join_activities(self, activities: list, username: str) -> str:
+        """合并多个活动信息"""
+        if not activities:
+            return ""
+
+        lines = []
+
+        for activity in activities:
+            if isinstance(activity, tuple):
+                modifier, verb_content = activity
+                lines.append(f"{username} {modifier}{verb_content} 了")
+            else:
+                lines.append(f"{username} {activity} 了")
+
+        return "\n".join(lines)
 
     def _format_activity_brief(self, activity: dict) -> str | tuple:
         """格式化单个活动（返回字符串或修饰词和动词+内容的元组）"""
@@ -460,7 +425,6 @@ class LanyardActivityNotifier(Star):
             assets = activity.get("assets", {})
             app_id = activity.get("application_id", "")
 
-            # 检查应用是否被排除
             if app_id and self._should_exclude_app(app_id):
                 return None
 
