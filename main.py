@@ -10,10 +10,10 @@ from astrbot.api.star import Context, Star, register
 
 
 @register(
-    name="astrbot_plugin_lanyard",
-    author="haha-dream",
-    version="v1.0.5",
-    desc="基于 Lanyard 把你的活动推送到群聊",
+    "astrbot_plugin_lanyard",
+    "haha-dream",
+    "基于 Lanyard 把你的活动推送到群聊",
+    "v1.0.5",
 )
 class LanyardActivityNotifier(Star):
     """Lanyard 活动推送插件
