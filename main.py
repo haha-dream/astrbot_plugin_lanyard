@@ -331,7 +331,7 @@ class LanyardActivityNotifier(Star):
                         activities_info.append(activity_msg)
 
             if activities_info:
-                return f"{username} {self._join_activities(activities_info)}"
+                return self._join_activities(activities_info, username)
 
             discord_status = presence_data.get("discord_status", "offline")
             return f"{username} 的 Discord 状态: {discord_status}"
@@ -340,29 +340,21 @@ class LanyardActivityNotifier(Star):
             logger.error(f"格式化活动信息失败: {e}")
             return None
 
-    def _join_activities(self, activities: list) -> str:
-        """合并多个活动信息，保留动词确保阅读流畅"""
+    def _join_activities(self, activities: list, username: str) -> str:
+        """合并多个活动信息"""
         if not activities:
             return ""
 
-        formatted = []
+        lines = []
 
-        for i, activity in enumerate(activities):
+        for activity in activities:
             if isinstance(activity, tuple):
                 modifier, verb_content = activity
-                if i == 0:
-                    formatted.append(f"{modifier}{verb_content}")
-                else:
-                    formatted.append(verb_content)
+                lines.append(f"{username} {modifier}{verb_content} 了")
             else:
-                formatted.append(activity)
+                lines.append(f"{username} {activity} 了")
 
-        if len(formatted) == 1:
-            return f"{formatted[0]} 了"
-        elif len(formatted) == 2:
-            return f"{formatted[0]}、{formatted[1]} 了"
-        else:
-            return "、".join(formatted) + " 了"
+        return "\n".join(lines)
 
     def _format_activity_brief(self, activity: dict) -> tuple:
         """格式化单个活动（返回修饰词和动词+内容的元组）"""
@@ -370,9 +362,24 @@ class LanyardActivityNotifier(Star):
         activity_name = activity.get("name", "Unknown")
         details = activity.get("details", "")
         state = activity.get("state", "")
+        assets = activity.get("assets", {})
 
         if activity_type == 0:
-            return ("开始", f"玩 {activity_name} ({details})")
+            game_info_parts = [f"玩 {activity_name}"]
+
+            if assets and assets.get("large_text"):
+                large_text = assets["large_text"].strip()
+                game_info_parts.append(large_text)
+
+            if state:
+                state_text = state.strip()
+                game_info_parts.append(state_text)
+
+            if details:
+                game_info_parts.append(details)
+
+            game_info = " | ".join(game_info_parts)
+            return ("开始", game_info)
         elif activity_type == 1:
             if details:
                 return ("开始", f"直播 {activity_name} ({details})")
