@@ -224,21 +224,20 @@ class LanyardActivityNotifier(Star):
 
             # 特殊处理 Spotify, 使用 details 作为指纹
             if activity_type == 2:
-                details = activity.get("details", "")
-                if details:
-                    activity_states.append(details)
-            elif activity.get("state") is None:
-                details = activity.get("details", "")
-                if details:
-                    activity_states.append(details)
-            elif activity.get("details") is None:
-                details = activity.get("name", "")
-                if details:
-                    activity_states.append(details)
-            else:
-                activity_state = activity.get("state", "")
-                if activity_state:
-                    activity_states.append(activity_state)
+                spotify = activity.get("details", "")
+                if spotify:
+                    activity_states.append(spotify)
+
+            state = activity.get("state", "")
+            name = activity.get("name", "")
+            details = activity.get("details", "")
+
+            if state:
+                activity_states.append(state)
+            elif name:
+                activity_states.append(name)
+            elif details:
+                activity_states.append(details)
 
         fingerprint = "|".join(activity_states)
         return fingerprint
