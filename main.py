@@ -375,8 +375,10 @@ class LanyardActivityNotifier(Star):
                 state_text = state.strip()
                 game_info_parts.append(state_text)
 
-            if details:
-                game_info_parts.append(details)
+            # if playing tModLoader with Discordya, skip details
+            if activity.get("application_id", "") != "844487120416407573":
+                if details:
+                    game_info_parts.append(details)
 
             game_info = " | ".join(game_info_parts)
             return ("开始", game_info)
