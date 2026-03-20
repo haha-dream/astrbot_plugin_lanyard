@@ -1,6 +1,6 @@
 [project]
 name = "astrbot-plugin-lanyard"
-version = "v1.0.5"
+version = "v1.0.6"
 description = "基于 Lanyard 把你的活动推送到群聊"
-requires-python = ">=3.12"
-dependencies = ["astrbot>=4.12.3", "websockets>=11.0"]
+requires-python = ">=3.13"
+dependencies = ["aiohttp>=3.13.3", "astrbot>=4.18.3"]

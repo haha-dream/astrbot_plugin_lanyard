@@ -1,8 +1,8 @@
 import asyncio
 import json
-from typing import Optional
+from typing import Any, Optional, cast
 
-import websockets
+import aiohttp
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import MessageChain, filter, AstrMessageEvent
@@ -13,38 +13,29 @@ from astrbot.api.star import Context, Star, register
     "astrbot_plugin_lanyard",
     "haha-dream",
     "基于 Lanyard 把你的活动推送到群聊",
-    "v1.0.5",
+    "v1.0.6",
 )
 class LanyardActivityNotifier(Star):
     """Lanyard 活动推送插件
 
-    通过 WebSocket 连接 Lanyard API，监听 Discord 用户的活动状态变化，
+    通过 HTTP 定时拉取 Lanyard API，监听 Discord 用户的活动状态变化，
     并将更新推送到配置的 QQ 群聊。
     """
 
-    OP_EVENT = 0
-    OP_HELLO = 1
-    OP_INITIALIZE = 2
-    OP_HEARTBEAT = 3
-
-    EVENT_INIT_STATE = "INIT_STATE"
-    EVENT_PRESENCE_UPDATE = "PRESENCE_UPDATE"
-
-    LANYARD_WS_URL = "wss://api.lanyard.rest/socket"
+    LANYARD_HTTP_URL_TEMPLATE = "https://api.lanyard.rest/v1/users/{user_id}"
+    ActivityBrief = str | tuple[str, str]
 
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
-        self._last_activities = None
+        self._pushed_activities: dict[str, str] = {}
         self._lock = asyncio.Lock()
-        self._ws = None
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        self._heartbeat_interval: float = 30.0
+        self._http_session: Optional[aiohttp.ClientSession] = None
 
     async def initialize(self):
-        """初始化插件，启动 WebSocket 监听"""
+        """初始化插件，启动 HTTP 轮询"""
         user_id = str(self.config.get("user_id", "")).strip()
         if not user_id:
             logger.warning(
@@ -54,28 +45,13 @@ class LanyardActivityNotifier(Star):
 
         logger.info("Lanyard 插件初始化中...")
         self._stop_event = asyncio.Event()
-        self._task = asyncio.create_task(self._websocket_loop())
+        self._http_session = aiohttp.ClientSession()
+        self._task = asyncio.create_task(self._http_poll_loop())
 
     async def terminate(self):
-        """终止插件，停止 WebSocket 连接"""
+        """终止插件，停止 HTTP 轮询"""
         logger.info("Lanyard 插件终止中...")
         self._stop_event.set()
-
-        if self._heartbeat_task is not None:
-            self._heartbeat_task.cancel()
-            try:
-                await self._heartbeat_task
-            except asyncio.CancelledError:
-                pass
-            finally:
-                self._heartbeat_task = None
-
-        if self._ws is not None:
-            try:
-                await self._ws.close()
-            except Exception:
-                pass
-            self._ws = None
 
         if self._task is not None:
             self._task.cancel()
@@ -86,174 +62,175 @@ class LanyardActivityNotifier(Star):
             finally:
                 self._task = None
 
-    async def _websocket_loop(self):
-        """WebSocket 主循环：连接、接收消息"""
+        if self._http_session is not None:
+            await self._http_session.close()
+            self._http_session = None
+
+    def _get_poll_interval(self) -> float:
+        """获取轮询间隔（秒）"""
+        value = self.config.get("poll_interval", 15)
+        try:
+            interval = float(value)
+        except (TypeError, ValueError):
+            interval = 15.0
+        return max(5.0, interval)
+
+    async def _http_poll_loop(self):
+        """HTTP 主循环：定时拉取并处理数据"""
         user_id = str(self.config.get("user_id", "")).strip()
         if not user_id:
-            logger.warning(
-                "Lanyard 插件: 未配置 Discord 用户 ID，无法启动 WebSocket 连接"
-            )
+            logger.warning("Lanyard 插件: 未配置 Discord 用户 ID，无法启动 HTTP 轮询")
             return
+
+        poll_interval = self._get_poll_interval()
+        logger.info(f"Lanyard HTTP 轮询已启动，间隔 {poll_interval:g}s")
 
         while not self._stop_event.is_set():
             try:
-                await self._connect_and_listen()
+                presence_data = await self._fetch_presence_data(user_id)
+                if presence_data:
+                    await self._check_and_push_update(presence_data)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.error(f"WebSocket 连接错误: {e}")
-                try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=5.0)
-                except TimeoutError:
-                    pass
+                logger.error(f"HTTP 轮询错误: {e}")
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=poll_interval)
+            except TimeoutError:
+                pass
 
-    async def _connect_and_listen(self):
-        """建立 WebSocket 连接并监听消息"""
-        user_id = str(self.config.get("user_id", "")).strip()
-        if not user_id:
-            logger.warning("未配置 Discord 用户 ID，跳过连接")
-            return
+    async def _fetch_presence_data(self, user_id: str) -> Optional[dict]:
+        """通过 HTTP 获取用户 Presence 数据"""
+        url = self.LANYARD_HTTP_URL_TEMPLATE.format(user_id=user_id)
+        if self._http_session is None:
+            self._http_session = aiohttp.ClientSession()
 
         try:
-            async with websockets.connect(
-                self.LANYARD_WS_URL,
-                ping_interval=20,
-                ping_timeout=10,
-            ) as ws:
-                self._ws = ws
-                logger.info("已连接到 Lanyard WebSocket")
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with self._http_session.get(url, timeout=timeout) as response:
+                if response.status != 200:
+                    logger.error(f"HTTP 拉取失败，状态码 {response.status}")
+                    return None
+                payload = await response.json(content_type=None)
+        except aiohttp.ClientError as e:
+            logger.error(f"HTTP 拉取失败，网络错误: {e}")
+            return None
+        except asyncio.TimeoutError:
+            logger.error("HTTP 拉取失败，请求超时")
+            return None
+        except json.JSONDecodeError:
+            logger.error("HTTP 拉取失败，响应不是合法 JSON")
+            return None
 
-                hello_msg = await ws.recv()
-                hello_data = json.loads(hello_msg)
+        if not isinstance(payload, dict):
+            logger.error("HTTP 拉取失败，响应结构异常")
+            return None
 
-                if hello_data.get("op") != self.OP_HELLO:
-                    logger.error("未收到 HELLO 消息")
-                    return
+        if payload.get("success") is False:
+            logger.error("Lanyard API 返回失败状态")
+            return None
 
-                self._heartbeat_interval = (
-                    hello_data.get("d", {}).get("heartbeat_interval", 30000) / 1000
-                )
+        presence_data = payload.get("data")
+        if not isinstance(presence_data, dict):
+            logger.error("Lanyard API 返回数据缺失")
+            return None
 
-                self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-
-                init_msg = {
-                    "op": self.OP_INITIALIZE,
-                    "d": {"subscribe_to_ids": [user_id]},
-                }
-                await ws.send(json.dumps(init_msg))
-                logger.info(f"已订阅用户 {user_id}")
-
-                async for message in ws:
-                    if self._stop_event.is_set():
-                        break
-
-                    try:
-                        data = json.loads(message)
-                        await self._handle_message(data)
-                    except Exception as e:
-                        logger.error(f"处理 WebSocket 消息错误: {e}")
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.error(f"WebSocket 连接失败: {e}")
-        finally:
-            self._ws = None
-
-    async def _heartbeat_loop(self):
-        """定期发送心跳"""
-        while not self._stop_event.is_set():
-            try:
-                await asyncio.sleep(self._heartbeat_interval)
-
-                if self._ws is None:
-                    break
-
-                heartbeat_msg = {"op": self.OP_HEARTBEAT}
-                await self._ws.send(json.dumps(heartbeat_msg))
-                logger.debug("已发送心跳")
-
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.error(f"发送心跳失败: {e}")
-                break
-
-    async def _handle_message(self, data: dict):
-        """处理 WebSocket 消息"""
-        op = data.get("op")
-        event_type = data.get("t")
-
-        if op != self.OP_EVENT:
-            return
-
-        if event_type == self.EVENT_INIT_STATE:
-            user_data = data.get("d", {})
-            presence_data = next(iter(user_data.values())) if user_data else None
-            if presence_data:
-                await self._check_and_push_update(presence_data)
-
-        elif event_type == self.EVENT_PRESENCE_UPDATE:
-            presence_data = data.get("d", {})
-            await self._check_and_push_update(presence_data)
+        return presence_data
 
     async def _check_and_push_update(self, presence_data: dict):
-        """检查活动是否变化，如果变化则推送"""
-        current_fingerprint = self._generate_activity_fingerprint(presence_data)
+        """检查每个活动是否变化，仅推送新增或变更的活动"""
+        username = self._get_username(presence_data)
+        current_activities = self._collect_current_activities(presence_data)
 
-        if current_fingerprint == self._last_activities:
-            return
+        current_keys = {activity_key for activity_key, _, _ in current_activities}
+        stale_keys = [
+            activity_key
+            for activity_key in self._pushed_activities
+            if activity_key not in current_keys
+        ]
+        for activity_key in stale_keys:
+            self._pushed_activities.pop(activity_key, None)
 
-        self._last_activities = current_fingerprint
+        pushed_count = 0
+        for activity_key, fingerprint, activity_text in current_activities:
+            if self._pushed_activities.get(activity_key) == fingerprint:
+                continue
+            pushed = await self._push_update(activity_text)
+            if not pushed:
+                continue
+            self._pushed_activities[activity_key] = fingerprint
+            pushed_count += 1
 
-        await self._push_update(presence_data)
+        if pushed_count:
+            logger.info(f"{username} 有 {pushed_count} 个活动发生变化并已推送")
 
-    def _generate_activity_fingerprint(self, presence_data: dict) -> str:
-        """生成活动指纹，用于检测活动变化"""
-        activities = presence_data.get("activities", [])
+    def _collect_current_activities(
+        self, presence_data: dict
+    ) -> list[tuple[str, str, str]]:
+        """收集当前活动的 key、指纹和待推送文本"""
         enable_activities = self._parse_enable_activities(
             self.config.get("enable_activities", [])
         )
+        username = self._get_username(presence_data)
+        activities = presence_data.get("activities", [])
+        if not isinstance(activities, list):
+            return []
 
-        activity_states = []
+        current_activities: list[tuple[str, str, str]] = []
         for activity in activities:
-            activity_type = activity.get("type", 6)
+            if not isinstance(activity, dict):
+                continue
 
+            activity_type = activity.get("type", 6)
             if enable_activities and activity_type not in enable_activities:
                 continue
 
-            # 特殊处理 Spotify, 使用 details 作为指纹
-            if activity_type == 2:
-                spotify = activity.get("details", "")
-                if spotify:
-                    activity_states.append(spotify)
+            activity_brief = self._format_activity_brief(activity)
+            if not activity_brief:
+                continue
 
-            state = activity.get("state", "")
-            name = activity.get("name", "")
-            details = activity.get("details", "")
+            activity_text = self._join_activities([activity_brief], username)
+            activity_key = self._generate_activity_key(activity)
+            fingerprint = self._generate_single_activity_fingerprint(activity_brief)
+            current_activities.append((activity_key, fingerprint, activity_text))
 
-            if state:
-                activity_states.append(state)
-            elif name:
-                activity_states.append(name)
-            elif details:
-                activity_states.append(details)
+        return current_activities
 
-        fingerprint = "|".join(activity_states)
-        return fingerprint
+    def _generate_activity_key(self, activity: dict) -> str:
+        """生成活动 key，用于标识同一条活动会话"""
+        activity_type = str(activity.get("type", 6))
+        activity_id = str(activity.get("id", "")).strip()
+        app_id = str(activity.get("application_id", "")).strip()
+        name = str(activity.get("name", "")).strip()
+        created_at = str(activity.get("created_at", "")).strip()
 
-    async def _push_update(self, presence_data: dict):
-        """推送活动更新到 QQ 群聊"""
+        key_parts = [
+            activity_type,
+            activity_id or "-",
+            app_id or "-",
+            name or "-",
+            created_at or "-",
+        ]
+        return "|".join(key_parts)
+
+    def _generate_single_activity_fingerprint(
+        self, activity_brief: ActivityBrief
+    ) -> str:
+        """生成单个活动指纹，用于检测该活动是否发生变化"""
+        return json.dumps(activity_brief, sort_keys=True, ensure_ascii=False)
+
+    async def _push_update(self, text: str) -> bool:
+        """推送单条活动更新到 QQ 群聊"""
         qq_groups = self._parse_qq_groups(self.config.get("qq_groups", []))
         if not qq_groups:
             logger.warning("未配置 QQ 群号，跳过推送")
-            return
+            return False
 
-        text = self._format_presence(presence_data)
         if not text:
-            return
+            return False
 
         text = "\u200b" + text + "\u200b"
+        pushed = False
 
         for group_id in qq_groups:
             try:
@@ -267,10 +244,14 @@ class LanyardActivityNotifier(Star):
                     )
                     continue
 
-                await self.context.send_message(umo, chain)
+                context = cast(Any, self.context)
+                await context.send_message(umo, chain)
                 logger.info(f"已推送活动更新到群 {group_id}")
+                pushed = True
             except Exception as e:
                 logger.error(f"推送到群 {group_id} 失败: {e}")
+
+        return pushed
 
     async def _get_group_unified_msg_origin(self, group_id: str) -> Optional[str]:
         """获取群的 unified_msg_origin，优先从缓存获取"""
@@ -317,10 +298,14 @@ class LanyardActivityNotifier(Star):
             return set()
         result = set()
         for item in value:
-            try:
-                result.add(int(item))
-            except (ValueError, TypeError):
-                pass
+            if isinstance(item, int):
+                result.add(item)
+                continue
+            if isinstance(item, str):
+                try:
+                    result.add(int(item))
+                except ValueError:
+                    pass
         return result
 
     def _get_filter_config(self) -> dict:
@@ -334,7 +319,7 @@ class LanyardActivityNotifier(Star):
             exclude_app_ids = []
 
         exclude_fields = filter_config.get("exclude_fields", {})
-        if not isinstance(exclude_fields, object):
+        if not isinstance(exclude_fields, dict):
             exclude_fields = {}
 
         return {
@@ -366,19 +351,21 @@ class LanyardActivityNotifier(Star):
 
     def _format_presence(self, presence_data: dict) -> str:
         """格式化活动信息为可读的文本"""
+        username = self._get_username(presence_data)
+        discord_status = "offline"
         try:
-            user = presence_data.get("discord_user", {})
-            username = user.get("display_name", "Unknown")
-
             enable_activities = self._parse_enable_activities(
                 self.config.get("enable_activities", [])
             )
 
-            activities_info = []
+            activities_info: list[LanyardActivityNotifier.ActivityBrief] = []
 
             activities = presence_data.get("activities", [])
-            if activities:
+            if isinstance(activities, list):
                 for activity in activities:
+                    if not isinstance(activity, dict):
+                        continue
+
                     activity_type = activity.get("type", 6)
 
                     if enable_activities and activity_type not in enable_activities:
@@ -396,9 +383,25 @@ class LanyardActivityNotifier(Star):
 
         except Exception as e:
             logger.error(f"格式化活动信息失败: {e}")
-            return None
+            return f"{username} 的 Discord 状态: {discord_status}"
 
-    def _join_activities(self, activities: list, username: str) -> str:
+    def _get_username(self, presence_data: dict) -> str:
+        """获取用于展示的 Discord 用户名"""
+        user = presence_data.get("discord_user", {})
+        if not isinstance(user, dict):
+            return "Unknown"
+
+        display_name = str(user.get("display_name", "")).strip()
+        if display_name:
+            return display_name
+
+        username = str(user.get("username", "")).strip()
+        if username:
+            return username
+
+        return "Unknown"
+
+    def _join_activities(self, activities: list[ActivityBrief], username: str) -> str:
         """合并多个活动信息"""
         if not activities:
             return ""
@@ -414,8 +417,9 @@ class LanyardActivityNotifier(Star):
 
         return "\n".join(lines)
 
-    def _format_activity_brief(self, activity: dict) -> str | tuple:
+    def _format_activity_brief(self, activity: dict) -> ActivityBrief | None:
         """格式化单个活动（返回字符串或修饰词和动词+内容的元组）"""
+        activity_name = "Unknown"
         try:
             activity_type = activity.get("type", 6)
             activity_name = activity.get("name", "Unknown")
@@ -500,4 +504,4 @@ class LanyardActivityNotifier(Star):
 
         except Exception as e:
             logger.error(f"格式化单个活动失败: {e}")
-            return None
+            return ("开始", f"捣鼓 {activity_name}")

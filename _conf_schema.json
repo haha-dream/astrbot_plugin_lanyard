@@ -4,6 +4,12 @@
     "type": "string",
     "hint": "你的 Discord 用户 ID，用于获取活动状态"
   },
+  "poll_interval": {
+    "description": "HTTP 轮询间隔(秒)",
+    "type": "float",
+    "hint": "定时拉取 Lanyard 状态的间隔秒数，建议 >= 5",
+    "default": 15
+  },
   "qq_groups": {
     "description": "QQ 群号列表",
     "type": "list",

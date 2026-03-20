@@ -1,236 +1,205 @@
 # Lanyard 活动推送插件
 
-通过 WebSocket 实时监听 Discord 用户的活动状态，并将更新推送到 QQ 群聊。
+通过 Lanyard HTTP API 定时拉取 Discord Presence，并将活动变化推送到 QQ 群聊。
 
 ## 功能特性
 
-🚀 **实时活动监听**
+### HTTP 轮询拉取
 
-- 通过 WebSocket 连接到 [Lanyard API](https://github.com/Phineas/lanyard)，实时获取 Discord 活动状态
-- 支持监听多种活动类型：游戏、直播、Spotify 音乐、观看、自定义状态、竞争
+- 通过 `https://api.lanyard.rest/v1/users/{user_id}` 定时获取 Presence
+- 支持自定义轮询间隔 `poll_interval`，默认 15 秒，最小 5 秒
 
-📱 **多群推送**
+### 活动级增量推送
 
-- 支持将活动推送到多个 QQ 群
-- 智能活动检测，仅在活动变化时推送消息
+- 不再把所有活动一次性整包重复发送
+- 每个活动都会单独建立标识和指纹
+- 只有某个活动首次出现或内容发生变化时，才会推送该活动
+- 活动结束后会从已推送列表移除，后续重新出现时可再次推送
 
-🎨 **自然的消息格式**
+### 多类型活动支持
 
-- 活动自动合并为一条消息，避免刷屏
-- 保留关键动词（玩、听、看）确保消息阅读流畅
-- 智能前缀词处理，多个活动时只保留第一个修饰词
+- 支持游戏、直播、Spotify、观看、自定义状态、竞争等常见 Discord 活动
+- 支持 `enable_activities` 过滤，只推送指定活动类型
 
-🔧 **灵活的配置**
+### 灵活的消息过滤
 
-- 支持活动类型过滤，只推送感兴趣的活动
-- 支持多种配置格式（JSON、列表、逗号分隔等）
+- 可按 `application_id` 排除特定应用
+- 可分别排除 `large_text`、`state`、`details` 字段
+
+### 多群推送
+
+- 支持同时推送到多个 QQ 群
+- 自动缓存群消息来源 `unified_msg_origin`
+- 发送时附加零宽空格，降低消息被过滤的概率
 
 ## 安装
 
-1. 克隆或下载插件到 AstrBot 的 `data/plugins` 目录：
+1. 克隆插件到 AstrBot 的 `data/plugins` 目录：
 
 ```bash
 cd AstrBot/data/plugins
 git clone https://github.com/haha-dream/astrbot_plugin_lanyard
 ```
 
-2. 重启 AstrBot 或在 WebUI 的插件管理中重载插件
+2. 重启 AstrBot，或在 WebUI 的插件管理页重载插件
 
 ## 配置
 
-在 AstrBot WebUI 的插件配置页面中配置以下项：
+在 AstrBot WebUI 的插件配置页面中配置以下项目。
 
 ### 必需配置
 
-| 配置项      | 说明                 | 示例                     |
-| ----------- | -------------------- | ------------------------ |
-| `user_id`   | Discord 用户 ID      | `123456789`              |
+| 配置项 | 说明 | 示例 |
+| --- | --- | --- |
+| `user_id` | Discord 用户 ID | `123456789012345678` |
 | `qq_groups` | 推送到的 QQ 群号列表 | `[123456789, 987654321]` |
 
 ### 可选配置
 
-| 配置项              | 说明                           | 默认值       |
-| ------------------- | ------------------------------ | ------------ |
-| `lanyard_api_key`   | Lanyard KV API Key（暂未实装） | 空           |
-| `enable_activities` | 启用的活动类型                 | `[]`（全部） |
+| 配置项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `poll_interval` | HTTP 轮询间隔，单位秒，最小 5 秒 | `15` |
+| `lanyard_api_key` | Lanyard KV API Key，当前未使用 | 空 |
+| `enable_activities` | 启用的活动类型列表，空列表表示全部启用 | `[]` |
+| `filter_config.exclude_app_ids` | 不显示这些应用的活动 | `[]` |
+| `filter_config.exclude_fields.large_text` | 不显示这些应用的 `large_text` | `[]` |
+| `filter_config.exclude_fields.state` | 不显示这些应用的 `state` | `[]` |
+| `filter_config.exclude_fields.details` | 不显示这些应用的 `details` | `[]` |
 
 ### 获取 Discord 用户 ID
 
-在 Discord 中启用开发者模式，右键点击用户头像，选择"复制用户 ID"
+在 Discord 中启用开发者模式后，右键用户头像并选择“复制用户 ID”。
 
 ### 活动类型编号
 
-`enable_activities` 配置示例：
+| 编号 | 活动类型 | 说明 |
+| --- | --- | --- |
+| `0` | 游戏 | 玩游戏 |
+| `1` | 直播 | 在平台直播 |
+| `2` | 听音乐 | Spotify 或其他音乐服务 |
+| `3` | 观看 | 观看视频或直播 |
+| `4` | 自定义状态 | 用户设置的自定义状态 |
+| `5` | 竞争 | 竞争类活动 |
 
-| 编号 | 活动类型   | 说明                   |
-| ---- | ---------- | ---------------------- |
-| 0    | 游戏       | 玩游戏                 |
-| 1    | 直播       | 在平台直播             |
-| 2    | 听音乐     | Spotify 或其他音乐服务 |
-| 3    | 观看       | 观看视频或直播         |
-| 4    | 自定义状态 | 用户设置的自定义状态   |
-| 5    | 竞争       | 竞争类游戏             |
-
-**配置示例：**
+### 配置示例
 
 ```json
 {
-  "user_id": "123456789",
+  "user_id": "123456789012345678",
+  "poll_interval": 15,
   "qq_groups": [123456789, 987654321],
-  "lanyard_api_key": "your_api_key",
-  "check_interval_seconds": 30,
-  "enable_activities": [0, 2]
+  "enable_activities": [0, 2],
+  "filter_config": {
+    "exclude_app_ids": [],
+    "exclude_fields": {
+      "large_text": [],
+      "state": [],
+      "details": []
+    }
+  }
 }
 ```
 
-仅推送游戏（0）和音乐（2）活动，空列表 `[]` 表示推送所有活动。
+## 推送示例
 
-## 使用示例
-
-### 示例 1：单个活动
+### 单个活动
 
 用户开始玩游戏时：
 
-```
+```text
 username 开始玩 Elden Ring 了
 ```
 
-### 示例 2：多个活动
+### 同时存在多个活动
 
-用户同时进行多个活动时：
+如果用户先在玩游戏，后面又开始播放 Spotify，则会分别推送：
 
-```
-username 开始玩 Minecraft、听 Levitating - Dua Lipa、看 YouTube 了
-```
-
-### 示例 3：Spotify 音乐
-
-用户在听音乐时：
-
-```
+```text
+username 开始玩 Minecraft 了
 username 开始听 Blinding Lights - The Weeknd 了
 ```
 
-### 示例 4：直播
+### 只有某个活动变化时
 
-用户正在直播时：
+如果用户保持在玩游戏，但 Spotify 曲目切换了，则只推送 Spotify 的新内容，不会把游戏活动再发一遍：
 
-```
-username 开始直播 Just Chatting (Playing Games) 了
-```
-
-### 示例 5：自定义状态
-
-用户设置了自定义状态时：
-
-```
-username 开始努力编程 了
+```text
+username 开始听 Levitating - Dua Lipa 了
 ```
 
-### 示例 6：无活动
+### 自定义状态
 
-用户没有活动时（回退到 Discord 状态）：
+用户设置自定义状态时：
 
-```
-username 的 Discord 状态: offline
+```text
+username 努力编程 了
 ```
 
 ## 工作原理
 
-1. **WebSocket 连接**
-   - 插件启动时建立与 `wss://api.lanyard.rest/socket` 的 WebSocket 连接
-   - 订阅指定 Discord 用户的活动更新
-
-2. **心跳保活**
-   - 定期发送心跳消息，保持连接活跃
-   - 若连接断开，自动重新建立
-
-3. **活动监听**
-   - 收到 `INIT_STATE` 消息时获取初始活动状态
-   - 收到 `PRESENCE_UPDATE` 消息时检测活动变化
-
-4. **变化检测**
-   - 使用 MD5 哈希对活动数据进行去重
-   - 仅当活动内容实际变化时才推送消息
-
-5. **群聊推送**
-   - 将格式化后的活动信息发送到配置的 QQ 群
-   - 添加零宽空格防止消息被过滤
+1. 插件启动后按 `poll_interval` 定时请求 Lanyard HTTP API。
+2. 每次拉取到 Presence 后，会遍历当前活动列表。
+3. 对每个活动生成活动 key，用于标识同一条活动会话。
+4. 对每个活动生成基于最终展示文案的指纹，用于判断这条活动是否真的发生了用户可见变化。
+5. 仅对首次出现或内容发生变化的活动发送消息。
+6. 如果某个活动结束，会从已推送缓存中移除；它以后重新出现时会再次推送。
 
 ## 技术细节
 
-### WebSocket 协议
+### 活动判重策略
 
-支持的操作码（Opcode）：
+- 活动 key 由活动类型、活动 ID、应用 ID、名称、创建时间等信息组成
+- 活动 fingerprint 基于最终展示给群聊的单条活动文案生成
+- 这样即使某些被过滤字段发生变化，只要最终文案没变，就不会重复推送
 
-- `OP_EVENT (0)`: 事件消息（INIT_STATE 或 PRESENCE_UPDATE）
-- `OP_HELLO (1)`: 连接初始化消息
-- `OP_INITIALIZE (2)`: 初始化消息（订阅用户）
-- `OP_HEARTBEAT (3)`: 心跳消息
+### 消息来源缓存
 
-### 消息存储
+插件使用 AstrBot 的 KV 存储缓存群的 `unified_msg_origin`：
 
-使用 AstrBot 的 KV 存储机制：
+- `group_origins`: 已缓存的群消息来源
 
-- `last_activity_hash`: 存储上次活动的哈希值
-- `group_origins`: 存储群组的 unified_msg_origin
+活动已推送状态保存在内存中，插件重启后会重新建立。
 
 ## 故障排除
 
-### 连接失败
+### 没有收到推送
 
-检查以下内容：
+- 检查 `user_id` 是否正确
+- 检查 `qq_groups` 是否配置正确
+- 检查目标群是否已缓存 `unified_msg_origin`
+- 检查 `enable_activities` 是否把目标活动过滤掉了
+- 检查 `filter_config` 是否排除了该活动的关键信息
 
-- `user_id` 配置是否正确
-- 网络连接是否正常
-- Lanyard 服务是否在线
+### 推送不够及时
 
-### 消息未推送
+- 当前实现基于 HTTP 轮询，不是 WebSocket 实时订阅
+- 延迟通常取决于 `poll_interval`
+- 如果希望更快响应，可以适当调低 `poll_interval`，但建议不要低于 5 秒
 
-检查以下内容：
+### 日志中出现 HTTP 错误
 
-- `qq_groups` 是否正确配置
-- 插件是否收到活动更新（查看日志）
-- `enable_activities` 过滤条件是否过于严格
+- 检查网络连通性
+- 检查 Lanyard 服务状态
+- 检查 AstrBot 宿主环境是否能正常访问 `api.lanyard.rest`
 
-### 推送延迟
+## 日志示例
 
-WebSocket 连接通常能在 1 秒内推送消息，如遇延迟：
-
-- 检查网络延迟
-- 查看 AstrBot 日志中是否有错误
-
-## 日志
-
-插件在 AstrBot 日志中输出关键信息：
-
-```
+```text
 [INFO] Lanyard 插件初始化中...
-[INFO] 已连接到 Lanyard WebSocket
-[INFO] 已订阅用户 123456789
-[DEBUG] 已发送心跳
+[INFO] Lanyard HTTP 轮询已启动，间隔 15s
 [INFO] 已推送活动更新到群 123456789
-[ERROR] WebSocket 连接失败: ...
+[INFO] haha-dream 有 1 个活动发生变化并已推送
+[ERROR] HTTP 拉取失败，状态码 429
 ```
 
 ## 依赖
 
-- `websockets`: WebSocket 客户端库
-- AstrBot 核心依赖
-
-自动安装，无需额外配置。
+- `aiohttp`
+- `astrbot>=4.18.3`
 
 ## 许可证
 
 MIT License
-
-## 作者
-
-haha-dream
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
 
 ## 相关链接
 
