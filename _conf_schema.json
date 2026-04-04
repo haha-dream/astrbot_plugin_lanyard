@@ -10,6 +10,12 @@
     "hint": "定时拉取 Lanyard 状态的间隔秒数，建议 >= 5",
     "default": 15
   },
+  "http_proxy": {
+    "description": "HTTP 代理地址",
+    "type": "string",
+    "hint": "可选。为 Lanyard HTTP 请求设置代理，例如 http://127.0.0.1:7890",
+    "default": ""
+  },
   "qq_groups": {
     "description": "QQ 群号列表",
     "type": "list",

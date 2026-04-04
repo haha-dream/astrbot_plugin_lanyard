@@ -75,6 +75,11 @@ class LanyardActivityNotifier(Star):
             interval = 15.0
         return max(5.0, interval)
 
+    def _get_http_proxy(self) -> Optional[str]:
+        """获取 HTTP 代理地址"""
+        value = str(self.config.get("http_proxy", "")).strip()
+        return value or None
+
     async def _http_poll_loop(self):
         """HTTP 主循环：定时拉取并处理数据"""
         user_id = str(self.config.get("user_id", "")).strip()
@@ -102,12 +107,15 @@ class LanyardActivityNotifier(Star):
     async def _fetch_presence_data(self, user_id: str) -> Optional[dict]:
         """通过 HTTP 获取用户 Presence 数据"""
         url = self.LANYARD_HTTP_URL_TEMPLATE.format(user_id=user_id)
+        proxy = self._get_http_proxy()
         if self._http_session is None:
             self._http_session = aiohttp.ClientSession()
 
         try:
             timeout = aiohttp.ClientTimeout(total=10)
-            async with self._http_session.get(url, timeout=timeout) as response:
+            async with self._http_session.get(
+                url, timeout=timeout, proxy=proxy
+            ) as response:
                 if response.status != 200:
                     logger.error(f"HTTP 拉取失败，状态码 {response.status}")
                     return None

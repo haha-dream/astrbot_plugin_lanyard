@@ -8,6 +8,7 @@
 
 - 通过 `https://api.lanyard.rest/v1/users/{user_id}` 定时获取 Presence
 - 支持自定义轮询间隔 `poll_interval`，默认 15 秒，最小 5 秒
+- 支持通过 `http_proxy` 为轮询请求配置代理
 
 ### 活动级增量推送
 
@@ -59,6 +60,7 @@ git clone https://github.com/haha-dream/astrbot_plugin_lanyard
 | 配置项 | 说明 | 默认值 |
 | --- | --- | --- |
 | `poll_interval` | HTTP 轮询间隔，单位秒，最小 5 秒 | `15` |
+| `http_proxy` | HTTP 轮询请求使用的代理地址 | 空 |
 | `lanyard_api_key` | Lanyard KV API Key，当前未使用 | 空 |
 | `enable_activities` | 启用的活动类型列表，空列表表示全部启用 | `[]` |
 | `filter_config.exclude_app_ids` | 不显示这些应用的活动 | `[]` |
@@ -87,6 +89,7 @@ git clone https://github.com/haha-dream/astrbot_plugin_lanyard
 {
   "user_id": "123456789012345678",
   "poll_interval": 15,
+  "http_proxy": "http://127.0.0.1:7890",
   "qq_groups": [123456789, 987654321],
   "enable_activities": [0, 2],
   "filter_config": {
@@ -179,6 +182,7 @@ username 努力编程 了
 ### 日志中出现 HTTP 错误
 
 - 检查网络连通性
+- 如果宿主机需要代理访问外网，检查 `http_proxy` 配置是否正确
 - 检查 Lanyard 服务状态
 - 检查 AstrBot 宿主环境是否能正常访问 `api.lanyard.rest`
 
